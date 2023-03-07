@@ -1,0 +1,333 @@
+---
+title: "NYPD Shooting by Age and Location"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-02-08"
+---
+### Purpose and Problem Statement
+
+In this analysis we will take a look at the nypd shooting data and attempt
+to ascertain what age groups are more responsible for shootings and if factors
+such as location descriptions, age group, and boro are a significant predictor 
+of a shooting being a murder.
+
+This information could potentially be used to impact policy designed to reduce 
+shootings / murders.
+
+
+Below are the list of packages required to run this file.
+
+library("tidyverse")
+library("lubridate")
+library("dplyr")
+library("ggplot2")
+library("scales")
+
+
+```{r setup}
+knitr::opts_chunk$set(echo = FALSE)
+options(width = 120)
+library("tidyverse")
+library("lubridate")
+library("dplyr")
+library("ggplot2")
+library("scales")
+```
+
+Downloading the data.
+```{r data}
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+file_names<-c("NYPD Shooting Incident Data (Historic)")
+```
+
+Reading the csv file from the above link.
+```{r import data, echo=TRUE}
+nypd<-read_csv(url_in[1])
+```
+
+Cleaning Data.
+
+```{r sumamry, echo=TRUE}
+#Tidy data and give summary
+#Remove columns not needed
+nypd<-select(nypd, -c(JURISDICTION_CODE, Lon_Lat, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, BORO, PRECINCT, PERP_RACE, ))
+
+#Format OCCUR_DATE Column
+nypd$OCCUR_DATE<-as.Date(nypd$OCCUR_DATE, "%m/%d/%Y")
+
+#Omit all NA values for locations
+nypd.l<-subset(nypd, !is.na(nypd$LOCATION_DESC))
+```
+
+```{r summary, echo=TRUE}
+summary(nypd.l)
+```
+
+```{r}
+nypd.l <- nypd.l %>% filter(PERP_AGE_GROUP != '224' & PERP_AGE_GROUP != '1020' & PERP_AGE_GROUP != '940' )
+nypd <- nypd %>% filter(PERP_AGE_GROUP != '224' & PERP_AGE_GROUP != '1020' & PERP_AGE_GROUP != '940' )
+```
+
+
+## Ages of Shooters and Victims
+
+```{r}
+nypd.perp.c <- nypd.l %>% count(PERP_AGE_GROUP)
+colnames(nypd.perp.c) <- c('age','count.perp')
+```
+
+```{r}
+nypd.vic.c<-nypd.l %>% count(VIC_AGE_GROUP)
+colnames(nypd.vic.c) <- c('age','count.vic')
+```
+
+```{r}
+nypd.c <-merge(nypd.perp.c,nypd.vic.c, by = 'age')
+nypd.c
+```
+The above table shows that the majority of known perps are between the ages of 
+18 and 44.
+
+The table also shows that the majority of known victims are also between the 
+ages of 18 and 44 with a larger amount in the 25-44 year old group when compared to 
+perpetrators.
+
+
+### Locations of Shootings
+
+Below we analyze the locations of shootings then conduct the same analysis based
+on age groups.
+
+```{r fig.width=15, fig.height=9}
+ggplot(nypd.l, aes(x=LOCATION_DESC)) + geom_bar(stat='count',fill = 'steelblue')+
+  coord_flip()+
+  geom_text(stat = 'count',aes(label=after_stat(count)), hjust = -.01) +
+  theme_minimal() +
+  ggtitle("Shootings by Location")
+```
+
+Above is a brief view into the different locations where shootings occurs. 
+My goal is to take this insight and analyze the locations in relation to victim 
+and perpetrator ages. Essentially, where do young people commit shootings / 
+are victims and where do older people commit shootings / are victims?
+
+
+# Age Based Analysis of Shooting Locations
+
+```{r}
+#taking a look at ages <18 and 18-24 to see where younger victims are impacted by crime the most
+nypd.young.vic<-nypd.l
+nypd.young.vic<-nypd.young.vic[nypd.young.vic$VIC_AGE_GROUP == c("<18","18-24","25-44"),]
+```
+
+```{r}
+nypd.young.vic.count<- nypd.young.vic%>%
+  dplyr::count(LOCATION_DESC)%>%
+  dplyr::mutate(perc = n/sum(n) * 100)
+
+```
+
+```{r}
+#taking a look at ages 45-64 and 64+ to see where  victims are impacted by crime the most
+nypd.old.vic<-nypd.l
+nypd.old.vic<-nypd.old.vic[nypd.old.vic$VIC_AGE_GROUP == c("45-64","65+") ,]
+
+```
+
+```{r fig.width=15, fig.height=9}
+ggplot(nypd.young.vic.count, aes(x = LOCATION_DESC, y = n),) +
+  geom_col(fill = 'steelblue') +
+  geom_text(aes(x = LOCATION_DESC, y = n
+                , label = paste0("","" , round(perc,2),"%")
+                , hjust = -.02
+                )) +
+  coord_flip() +
+  ggtitle("Shooting Locations Victims ages <18-44")+
+  theme_minimal() 
+```
+
+Above is a visual that shows the percentage of locations of reported crimes
+for a substet of the nypd dataset that includes only victims between the ages
+of <18 and 44. We can see that most (67.6%) of young victims are located in
+multi-dwell public housing and apartment buildings. Grocery stores and bars/
+nightclubs make up 11.51% of the locations as well. Will view similar data but
+for older victims below.
+
+
+```{r}
+# creating a frequency / percentage table from nypd.old
+
+nypd.old.vic.count<- nypd.old.vic%>%
+  dplyr::count(LOCATION_DESC)%>%
+  dplyr::mutate(perc = n/sum(n) * 100)
+```
+
+```{r fig.width=15, fig.height=9}
+ggplot(nypd.old.vic.count, aes(x = LOCATION_DESC, y = n),) +
+  geom_col(fill = 'steelblue') +
+  geom_text(aes(x = LOCATION_DESC, y = n
+                , label = paste0("","" , round(perc,2),"%")
+                , hjust = -.02
+                )) +
+  coord_flip() +
+  ggtitle("Shooting Locations Victims Ages 45-65+") +
+  theme_minimal()
+```
+
+
+
+At a brief glance it seems that like younger victims, older victims tend to 
+have the shootings impact them in multi dwell public housing and apartment buildings.
+While this is true, the percentages tell a slightly different story. In
+comparison to the ages of <18-44, victims between the ages of 44-65+ show a 18.43%
+decrease in shootings in multi dwell housing and apartments. 
+
+Overall the other locations which still contain significantly less amounts of
+shootings in comparison to multi dwell public housing and apartments 
+seem to be more represented in the older victim group. For example
+private homes, social clubs, and all the  different kinds of 
+stores seem to be more represented in older victims. However Bars and nightclubs
+are less represented.
+
+
+## Potential for Bias from NA Values
+
+Perpetrator data for both age groups (<18-44, and 44-65+) contain majority
+na values. This could be for a multitude of reasons. Not every criminal
+is caught so the missing values could represent those cases, however this is not 
+conclusive. For further analysis we will be removing na values from both data 
+sets but this might introduce a risk of survivor bias.
+
+
+## Format & Tidy Data for a Logistic Regression Models
+
+```{r}
+# Read in CSV from link
+nypd.1 <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD") 
+```
+
+```{r}
+
+# Select appropriate columns and tidy data
+
+nypd.m<-nypd.1
+#nypd.m <-drop_na(nypd.m)
+nypd.m<-nypd.m %>% select(INCIDENT_KEY, 
+                   OCCUR_DATE,
+                   OCCUR_TIME,
+                   BORO, 
+                   STATISTICAL_MURDER_FLAG,
+                   PERP_AGE_GROUP,
+                   PERP_SEX,
+                   PERP_RACE,
+                   VIC_AGE_GROUP,
+                   VIC_SEX,
+                   VIC_RACE,
+                   LOCATION_DESC
+                  )
+
+nypd.m <- nypd.m %>% filter(PERP_AGE_GROUP != '224' & PERP_AGE_GROUP != '1020' & PERP_AGE_GROUP != '940' & PERP_AGE_GROUP != 'UNKNOWN')
+nypd.m<-nypd.m %>% filter(VIC_SEX != "U")
+nypd.m<-nypd.m %>% filter(PERP_SEX != "U")
+nypd.m<-nypd.m %>% filter(VIC_AGE_GROUP != "UNKOWN")
+
+nypd.m$STATISTICAL_MURDER_FLAG[nypd.m$STATISTICAL_MURDER_FLAG == "TRUE"] = 'a'
+nypd.m$STATISTICAL_MURDER_FLAG[nypd.m$STATISTICAL_MURDER_FLAG == "FALSE"] = 'b'
+
+# Format as factor
+
+nypd.m$BORO <-as.factor(nypd.m$BORO)
+nypd.m$LOCATION_DESC <-as.factor(nypd.m$LOCATION_DESC)
+nypd.m$PERP_SEX <-as.factor(nypd.m$PERP_SEX)
+nypd.m$VIC_SEX <-as.factor(nypd.m$VIC_SEX)
+nypd.m$STATISTICAL_MURDER_FLAG <-as.factor(nypd.m$STATISTICAL_MURDER_FLAG)
+nypd.m$PERP_AGE_GROUP <-as.factor(nypd.m$PERP_AGE_GROUP)
+nypd.m$PERP_RACE <-as.factor(nypd.m$PERP_RACE)
+nypd.m$VIC_AGE_GROUP <-as.factor(nypd.m$VIC_AGE_GROUP)
+nypd.m$VIC_RACE <-as.factor(nypd.m$VIC_RACE)
+
+```
+
+The below model attempts to show if location description is significant predictor  
+of a shooting being a murder
+
+```{r fig.width=15, fig.height=9}
+m1<-glm(STATISTICAL_MURDER_FLAG ~ LOCATION_DESC, data = nypd.m, family = "binomial")
+summary(m1)
+```
+
+The above model shows that no particular location description is statistically 
+significant when trying to predict if a shooting was a murder or not. P values
+are too high.
+
+The below model attempts to show if perp age group is significant predictor  
+of a shooting being a murder
+
+```{r fig.width=15, fig.height=9}
+m2<-glm(STATISTICAL_MURDER_FLAG ~ PERP_AGE_GROUP, data = nypd.m, family = "binomial")
+summary(m2)
+```
+
+According to the model, perp age group is a significant predictor of a shooting 
+not being a murder. The model shows that they older the age group, the less likely
+the shooting is to be a murder.
+
+
+```{r fig.width=15, fig.height=9}
+m2<-glm(STATISTICAL_MURDER_FLAG ~VIC_AGE_GROUP, data = nypd.m, family = "binomial")
+summary(m2)
+```
+
+```{r fig.width=15, fig.height=9}
+m3<-glm(STATISTICAL_MURDER_FLAG ~ BORO, data = nypd.m, family = "binomial")
+summary(m3)
+```
+
+The above data model shows the Bronx, Brooklyn, and Manhattan are statistically
+significant when predicting murders.
+
+
+## Potential Bias in Analysis
+
+When setting out on this analysis I initially assumed that younger folks were more
+likely to be shooters than older folks and while this might be the case for ages
+65+, this was not necessarily the case for ages 25-44. A look at the numbers 
+mitigated these biases. That being said people ages 65+ were significantly less
+likely to be shooters than those in the younger age groups.
+
+As mentioned before another potential source of bias is resulting from
+from the omission of a large amount of NA values when analyzing the perp data.
+Perps who were not caught could potentially be over represented in a certain age
+group which has the potential to skew the data one way or another. In this event,
+we cannot be as conclusive with perp data as we are with victim data but the analysis
+was still worthwhile. 
+
+
+## Conclusion
+
+Given our analysis above it seems that shooting location and age possibly tell
+a story of proximity. Younger shooters and victims seem to both be primarily 
+be in public housing and apartment buildings. This could imply that younger 
+shooters tend to shoot younger victims more than they do older victims.
+
+
+We also used 3 logistic regression modes to show the potential impact of location
+description, perp/victim, and boro on the shooting being classified as a murder.
+
+The models indicated that location description is not a good predictor of murder
+and that perp/vic age group, and boro are statistically significant factors.
+
+People in the <18-44 age group are more likely to be shot and murdered, and 
+shootings that occur in the Bronx, Brooklyn, and Manhattan are more likely to be 
+murders.
+
+
+
+
+
+
+
+
+
+
