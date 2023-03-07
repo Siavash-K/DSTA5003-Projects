@@ -1,0 +1,530 @@
+---
+title: "Covid-19 Project"
+author: "Siavash Keivani"
+date: "2023-03-01"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+### COVID-19 Data Analysis
+
+In this analysis we will take a look at USA national covid-19 cases and deaths and 
+compare them to trends in California. We will also create 2 models to asses the 
+impact of cases per thousand on deaths per thousand, and to predict USA deaths 
+per million in 2024 using the open source prophet library.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+options(width=120)
+library("tidyverse")
+library("lubridate")
+library("dplyr")
+library("ggplot2")
+library("scales")
+library("readr")
+library("prophet")
+library("sf")
+library("ggspatial")
+library("plotly")
+library("maps")
+library("usmap")
+```
+
+
+##  Libraries Used
+
+
+library("tidyverse")
+library("lubridate")
+library("dplyr")
+library("ggplot2")
+library("scales")
+library("readr")
+library("prophet")
+library("sf")
+library("ggspatial")
+library("plotly")
+library("maps")
+library("usmap")
+
+
+## Read in Data
+
+```{r}
+urlfile1 <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv'
+urlfile2 <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv'
+urlfile3 <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv'
+urlfile4 <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
+```
+
+```{r}
+us.cases <- read_csv(url(urlfile1))
+global.cases <- read_csv(url(urlfile2))
+us.deaths <- read_csv(url(urlfile3))
+global.deaths <- read_csv(url(urlfile4))
+```
+## Tidy Data
+
+Tidy global.cases
+
+```{r}
+# Pivot global cases and name columns
+global.cases <- global.cases %>%
+  pivot_longer(cols = -c('Province/State','Country/Region','Lat','Long'),
+    names_to = "date",
+    values_to = "cases")
+```
+
+```{r}
+#remove lat long columns
+global.cases<-select(global.cases,-c(Lat,Long))
+```
+
+Tidy global.deaths
+
+```{r}
+# pivot and give column names
+global.deaths <- global.deaths %>%
+  pivot_longer(cols = -c('Province/State','Country/Region','Lat','Long'),
+    names_to = "date",
+    values_to = "deaths")
+```
+
+```{r}
+# remove lat and long columns
+global.deaths<-select(global.deaths,-c(Lat,Long))
+```
+
+```{r}
+# Merge global cases and deaths
+global <- global.cases %>%
+  full_join(global.deaths) %>%
+  rename(Country_Region = 'Country/Region', Province_State = 'Province/State') %>%
+  mutate(date = myd(date))
+```
+```{r}
+summary(global)
+```
+```{r}
+# only cases above 0
+global<-global %>% filter(cases > 0)
+```
+
+## Wrangling, cleaning, and merging us.deaths and us.cases
+
+```{r}
+us.cases <- us.cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date))%>%
+  select(-c(Lat,Long_))
+```
+
+```{r}
+us.deaths <- us.deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date))%>%
+  select(-c(Lat,Long_))
+```
+
+```{r}
+us <- us.cases %>%
+  full_join(us.deaths)
+```
+## Data wrangling for global data sets
+
+```{r}
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ",",
+        na.rm = TRUE,
+        remove = FALSE)
+```
+
+```{r}
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+```
+
+```{r}
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2 ))
+```
+
+```{r}
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID, FIPS))%>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+```
+
+
+```{r}
+us.state <- us %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths*1000000 / Population) %>%
+  select(Province_State, Country_Region, date, cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+```
+## Creating a Map of Deaths per US State
+
+```{r}
+us.state.md <- us.state %>%
+  select(Province_State,deaths,cases,Population) %>%
+  rename(state = "Province_State") %>%
+  group_by(state) %>%
+  summarize(deaths = max(deaths),cases =  max(cases), Population = max(Population)) %>%
+  mutate(deaths.pc=deaths/Population, cases.pc = cases/Population )
+ # rename(state = "Province_State")
+```
+
+```{r}
+plot_usmap(data = us.state.md, values = "deaths", regions = "states") +
+  
+  labs(title = "US States",
+       subtitle = "Map of Covid Deaths per US State ") + 
+  theme(panel.background = element_rect(color = "black", fill = "lightblue")) +
+  scale_fill_continuous(
+    low = "yellow", high = "red", name = "deaths", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+
+
+## Map of Cases per US State
+
+
+```{r}
+plot_usmap(data = us.state.md, values = "cases", regions = "states") +
+  
+  labs(title = "US States",
+       subtitle = "Map of Covid Cases per US State ") + 
+  theme(panel.background = element_rect(color = "black", fill = "lightblue")) +
+  scale_fill_continuous(
+    low = "white", high = "blue", name = "cases", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+The maps above show California, Texas and Florida as being states with large
+amounts of cases and deaths. However a more accurate analysis might be to look
+at cases and deaths per capita. Lets take a look below.
+
+```{r}
+plot_usmap(data = us.state.md, values = "cases.pc", regions = "states") +
+  
+  labs(title = "US States",
+       subtitle = "Map of Covid Cases per Capita by US State ") + 
+  theme(panel.background = element_rect(color = "black", fill = "lightblue")) +
+  scale_fill_continuous(
+    low = "white", high = "blue", name = "cases per capita", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+```{r}
+plot_usmap(data = us.state.md, values = "deaths.pc", regions = "states") +
+  
+  labs(title = "US States",
+       subtitle = "Map of Covid Deaths per Capita by  US State ") + 
+  theme(panel.background = element_rect(color = "black", fill = "lightblue")) +
+  scale_fill_continuous(
+    low = "yellow", high = "red", name = "deaths per capita", label = scales::comma) + 
+  theme(legend.position = "right")
+```
+
+Cases and deaths per capita show a different story when it comes to CA, TX, and
+FL. California and Texas seem to now be in the  middle of the pack in contrast 
+to before when the maps showed them in the lead with cases and deaths.
+
+
+```{r}
+us.totals <- us.state %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths*1000000 / Population) %>%
+  select(Country_Region, date, cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+```
+
+```{r fig.width= 15, fig.height= 7}
+us.totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10()+
+  theme(legend.position = "bottom", axis.text.x = element_text(angle=90)) +
+  labs(title = "COVID19 in US", y = NULL)
+  
+```
+
+```{r fig.width= 15, fig.height= 7}
+state <- "California"
+us.state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color = "cases")) +
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10()+
+  theme(legend.position = "bottom", axis.text.x = element_text(angle=90)) +
+  labs(title = "COVID19 in California", y = NULL)
+  
+```
+We see from the above visualizations that covid cases and deaths follow similar
+trends when comparing California to the USA as a whole. We see an exponential 
+rise in both cases and deaths. then in 2022-2023 we see that cases and deaths 
+plateu. Early on deaths were closer to cases but as vaccines and new treatments
+rolled out it seems that the gap between deaths and cases has increased with many
+more cases than deaths.
+
+
+## Taking a Look at New Cases and New Deaths
+
+```{r}
+# creating new cases and deaths columns
+us.state <- us.state %>%
+  mutate(new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths))
+us.totals<- us.totals %>%
+  mutate(new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths))
+```
+
+## Visualizing New Cases and New Deaths
+
+```{r fig.width= 10, fig.height= 7}
+state <- "California"
+us.state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10()+
+  theme(legend.position = "bottom", axis.text.x = element_text(angle=90)) +
+  labs(title = "New COVID19 Cases & Deaths in California", y = NULL) +
+  geom_smooth(aes(x=date,y=new_deaths),method = loess) +
+  geom_smooth(aes(x=date,y=new_cases), method = loess)
+  
+  
+```
+```{r fig.width= 10, fig.height= 7}
+state <- "Texas"
+us.state %>%
+  filter(Province_State == state) %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10()+
+  theme(legend.position = "bottom", axis.text.x = element_text(angle=90)) +
+  labs(title = "New COVID19 Cases & Deaths in Texas", y = NULL) +
+  geom_smooth(aes(x=date,y=new_deaths), method = loess) +
+  geom_smooth(aes(x=date,y=new_cases), methos = loess)
+  
+```
+
+
+```{r fig.width= 10, fig.height= 7}
+us.totals %>%
+  filter(cases > 0) %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color = "new_cases")) +
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10()+
+  theme(legend.position = "bottom", axis.text.x = element_text(angle=90)) +
+  labs(title = "New COVID19 Cases & Deaths in US", y = NULL) +
+  geom_smooth(aes(x=date,y=new_deaths), method = loess) +
+  geom_smooth(aes(x=date,y=new_cases), methos = loess)
+  
+```
+
+Data in 2022-2023 is showing a slight decline in new cases and new deaths. We have to
+think about why this might be the case. It is possible that this is actually 
+the case however data reporting during  this  time might be a lot weaker.
+
+During the height of the pandemic people were more likely to report their covid 
+case. Now in a world of vaccines and boosters it is quite possible that people
+do not report when they test positive especially with the large amount of at 
+home test available to the public.
+
+
+```{r}
+us.state.totals <- us.state %>%
+  group_by(Province_State)%>%
+  summarize(deaths = max(deaths), cases = max(cases), population = max(Population),
+            cases_per_thou = cases*1000/population, deaths_per_thou = deaths*1000/population) %>%
+  filter(cases > 0, population > 0)
+```
+
+```{r fig.height= 15, fig.width=5}
+us.state.totals %>%
+  ggplot(aes(x = Province_State, y = cases_per_thou))+
+  geom_bar(stat="identity", fill='steelblue')+
+  coord_flip()+
+  theme_minimal()
+```
+
+
+
+
+A glance at cases per thousand show most states between 200 and 350.
+
+
+
+Taking a look at the highest and lowest 10 states for deaths per thousand
+
+```{r}
+us.state.totals %>%
+  slice_min(deaths_per_thou, n =10)
+```
+```{r}
+us.state.totals %>%
+  slice_max(deaths_per_thou, n =10)
+```
+
+## Linear model of deaths per thousand as a function of cases per thousand.
+```{r}
+lm1 <- lm(deaths_per_thou ~ cases_per_thou, data = us.state.totals)
+summary(lm1)
+```
+The low p value shows that cases per thousand is statistically significant when
+predicting deaths per thousand in the united states.
+
+```{r}
+plot(lm1)
+```
+
+Our residual vs fitted plot indicates that the data might not be linear however
+this does not mean we cant gain any insight from our model.
+
+## Visualizing cases per thousand and deaths per thousand
+
+```{r}
+ggplot(us.state.totals, aes(x=cases_per_thou, y=deaths_per_thou)) +
+  geom_point(size=1.5, shape=1)+
+  geom_smooth(method='loess', formula= y~x)
+```
+
+
+
+
+While it may seem that the relationship is not linear we have to ask why that might be?
+As stated before it is possible that as time passes, and the vaccines 
+and treatments are rolled out, that people are less likely to report a positive 
+test, especially given the abundance of at home test. 
+
+```{r}
+ggplot(us.totals, aes(x=cases, y=deaths)) +
+  geom_point(size=1.5, shape=1) +
+  geom_smooth(method='lm', formula= y~x)
+```
+
+
+
+
+
+
+## Creating a Model to Predict Deaths per Million in the USA
+
+using an open source library called prophet which generates a model used to
+predict future outcomes.
+
+```{r}
+# format data for use in the prophet function
+us.totals.m <- us.totals %>%
+  select(date, deaths_per_mill)%>%
+  rename(
+    ds = date,
+    y = deaths_per_mill
+    )
+```
+
+```{r}
+library(prophet)
+mod <- prophet(us.totals.m, yearly.seasonality = TRUE, daily.seasonality = TRUE)
+```
+
+```{r}
+pred <- make_future_dataframe(mod,periods = 365)
+fc<-predict(mod,pred)
+plot(mod,fc)
+```
+
+
+
+
+This model seems to predict a rise in deaths per million in 2024 as compared to 
+previous years. However, this is not accounting for better treatments, and more
+effective vaccines / booster. 
+
+
+
+## Bias Identification
+
+COVID19 was a very hot political topic in the USA and as a US citizen I certainly 
+had some bias regarding this topic. I had initially thought states like California,
+Oregon, New York, and Washington would have the worst performance when it comes
+to controlling the spread of the virus and the death counts. Looking at raw state
+deaths and cases initially confirmed by bias, however a further analysis using maps
+and per capita calculations showed that in fact those mentioned states were not
+the worst performing. 
+
+Another potential source of bias is in the data capturing process. With the
+potential for less self reporting as time goes on, the data that is  reported might
+only be of those whos cases were severe enough to be hospitalized or see a doctor.
+As we know, a very large portion of folks who are vaccinated and otherwise healthy
+will most likely not reach this state and therefore their case might not be captured.
+It is hard to tell exactly how many cases this would be but it is likely enough to
+have an effect on conclusions made based on our calculations.
+
+## Conclusion
+
+Our analysis showed that new cases and deaths seem to have platued across the USA.
+Comparing this to California we can see a similar trend. We also were able to 
+determine that while TX, CA, and FL were the highest in raw deaths and cases,
+TX and CA specifically were actually lower when it came to cases and deaths per 
+capita when compared to the majority of US states.
+
+We were able to show using a linear model that cases per thousand was statistically
+significant when predicting deaths per thousand. 
+
+Our 2nd model predicted a potential increase in deaths per million in the USA in 2024
+when compared to 2023. This is with the caveat that this cannot factor in the potential
+for more effective treatments and vaccines/boosters.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
