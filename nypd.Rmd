@@ -1,8 +1,8 @@
 ---
 title: "NYPD Shooting by Age and Location"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 date: "2023-02-08"
 ---
 ### Purpose and Problem Statement
@@ -15,6 +15,12 @@ of a shooting being a murder.
 This information could potentially be used to impact policy designed to reduce 
 shootings / murders.
 
+## Data Source and Desciption
+
+the data set NYPD  Shooting Incident Data (Historic) is a public data set 
+provided by NYC Open Data and contain information regarding shooting incidents in NYC from
+2006 to current year. 
+
 
 Below are the list of packages required to run this file.
 
@@ -25,7 +31,7 @@ library("ggplot2")
 library("scales")
 
 
-```{r setup}
+```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 options(width = 120)
 library("tidyverse")

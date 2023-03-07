@@ -15,6 +15,13 @@ compare them to trends in California. We will also create 2 models to asses the
 impact of cases per thousand on deaths per thousand, and to predict USA deaths 
 per million in 2024 using the open source prophet library.
 
+These data sets are provided by Johns Hopkins on Github. This data is gathered
+from different sources which are listed by Johns Hopkins on their github links 
+below.
+
+This data set includes location information for countries, and the number of
+covid cases and deaths. 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE)
 options(width=120)
